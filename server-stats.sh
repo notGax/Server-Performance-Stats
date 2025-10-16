@@ -1,41 +1,25 @@
 #!/usr/bin/env bash
-set -euo pipefail
 
-# CPU usage
-read -r _ u1 n1 s1 i1 w1 ir1 si1 st1 _ _ < /proc/stat
-t1=$((u1+n1+s1+i1+w1+ir1+si1+st1))
-sleep 0.5
-read -r _ u2 n2 s2 i2 w2 ir2 si2 st2 _ _ < /proc/stat
-t2=$((u2+n2+s2+i2+w2+ir2+si2+st2))
-cpu=$(awk -v t1="$t1" -v i1="$i1" -v t2="$t2" -v i2="$i2" 'BEGIN{dt=t2-t1; di=i2-i1; if(dt<=0){print "0.0"} else {printf "%.1f", (1 - di/dt)*100}}')
-echo "CPU: ${cpu}%"
+# CPU (delta from /proc/stat with a tiny sleep)
+awk 'BEGIN{
+  getline <"/proc/stat"; split($0,a)
+  t1=a[2]+a[3]+a[4]+a[5]+a[6]+a[7]+a[8]+a[9]; i1=a[5]
+  system("sleep 0.5")
+  getline <"/proc/stat"; split($0,b)
+  t2=b[2]+b[3]+b[4]+b[5]+b[6]+b[7]+b[8]+b[9]; i2=b[5]
+  printf "CPU: %.1f%%\n", (1- (i2-i1)/(t2-t1))*100
+}'
 
-# Memory usage
-if command -v free >/dev/null 2>&1; then
-  free -m | awk '/^Mem:/ {printf "Memory: %s/%s MB (%.1f%%)\n", $3, $2, ($3/$2)*100}'
-else
-  awk '
-    /^MemTotal:/ {total=$2}
-    /^MemAvailable:/ {avail=$2}
-    END {
-      if (total>0) {
-        used=(avail>0)?(total-avail):total
-        printf "Memory: %.0f/%.0f MB (%.1f%%)\n", used/1024, total/1024, (used/total)*100
-      }
-    }' /proc/meminfo
-fi
+# Memory (MB)
+free -m | awk '/^Mem:/ {printf "Memory: %s/%s MB (%.1f%%)\n", $3, $2, ($3/$2)*100}'
 
-# Disk usage
-if df -h --total >/dev/null 2>&1; then
-  df -h --total | awk 'END{printf "Disk: %s/%s (%s)\n", $3, $2, $5}'
-else
-  df -k | awk 'NR>1 {used+=$3; size+=$2} END {if(size>0) printf "Disk: %.1fG/%.1fG (%.1f%%)\n", used/1048576, size/1048576, (used/size)*100}'
-fi
+# Disk (all filesystems total)
+df -h --total | awk 'END{printf "Disk: %s/%s (%s)\n", $3, $2, $5}'
 
-# Top 5 processes by CPU
+# Top 5 by CPU
 echo "Top 5 processes by CPU:"
 ps -eo pid,comm,%cpu --sort=-%cpu | head -n 6
 
-# Top 5 processes by Memory
+# Top 5 by MEM
 echo "Top 5 processes by MEM:"
 ps -eo pid,comm,%mem --sort=-%mem | head -n 6
